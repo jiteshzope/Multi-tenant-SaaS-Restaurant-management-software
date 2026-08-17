@@ -1,0 +1,322 @@
+// Multi-tenant restaurant SaaS — data model.
+// `../../database/CLAUDE.md` is the source of truth for this schema; everything
+// PostgreSQL can express but Prisma cannot (partial indexes, triggers, generated
+// columns, CHECK constraints) lives in hand-written SQL under prisma/migrations.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums — mirror the PostgreSQL ENUM types exactly.
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  OWNER
+  WAITER
+  KITCHEN
+
+  @@map("user_role")
+}
+
+enum TableStatus {
+  VACANT
+  OCCUPIED
+
+  @@map("table_status")
+}
+
+enum SessionStatus {
+  OPEN
+  CLOSED
+
+  @@map("session_status")
+}
+
+enum OrderStatus {
+  PENDING
+  PREPARING
+  COMPLETED
+  CANCELLED
+
+  @@map("order_status")
+}
+
+// ---------------------------------------------------------------------------
+// Core
+// ---------------------------------------------------------------------------
+
+model Restaurant {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name       String   @db.VarChar(120)
+  slug       String   @unique(map: "uq_restaurants_slug") @db.Citext
+  phone      String?  @db.VarChar(20)
+  address    String?
+  currency   String   @default("INR") @db.Char(3)
+  timezone   String   @default("Asia/Kolkata") @db.VarChar(64)
+  taxPercent Decimal  @default(5.00) @map("tax_percent") @db.Decimal(5, 2)
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  members     RestaurantUser[]
+  tables      RestaurantTable[]
+  assignments TableWaiterAssignment[]
+  categories  MenuCategory[]
+  items       MenuItem[]
+  sessions    TableSession[]
+  orders      Order[]
+  orderItems  OrderItem[]
+  counter     RestaurantCounter?
+
+  @@map("restaurants")
+}
+
+model User {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String    @db.VarChar(120)
+  email        String    @unique(map: "uq_users_email") @db.Citext
+  phone        String?   @db.VarChar(20)
+  passwordHash String    @map("password_hash")
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  memberships       RestaurantUser[] @relation("MembershipUser")
+  createdMembers    RestaurantUser[] @relation("MembershipCreatedBy")
+  refreshTokens     RefreshToken[]
+  waiterAssignments TableWaiterAssignment[] @relation("AssignmentWaiter")
+  madeAssignments   TableWaiterAssignment[] @relation("AssignmentAssignedBy")
+  openedSessions    TableSession[]          @relation("SessionOpenedBy")
+  closedSessions    TableSession[]          @relation("SessionClosedBy")
+  orders            Order[]
+
+  @@map("users")
+}
+
+model RestaurantUser {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  restaurantId String   @map("restaurant_id") @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  role         UserRole
+  isActive     Boolean  @default(true) @map("is_active")
+  createdBy    String?  @map("created_by") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  user       User       @relation("MembershipUser", fields: [userId], references: [id], onDelete: Cascade)
+  creator    User?      @relation("MembershipCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@unique([restaurantId, userId], map: "uq_restaurant_users")
+  @@index([userId], map: "idx_ru_user")
+  @@map("restaurant_users")
+}
+
+/// Rotating refresh-token store. Global (per user), never tenant-scoped:
+/// a refresh token belongs to a *login*, not to a restaurant.
+model RefreshToken {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  familyId      String    @default(dbgenerated("gen_random_uuid()")) @map("family_id") @db.Uuid
+  tokenHash     String    @map("token_hash")
+  expiresAt     DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt     DateTime? @map("revoked_at") @db.Timestamptz(6)
+  revokedReason String?   @map("revoked_reason") @db.VarChar(40)
+  replacedById  String?   @map("replaced_by_id") @db.Uuid
+  userAgent     String?   @map("user_agent")
+  ip            String?   @db.Inet
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replacedBy RefreshToken?  @relation("TokenRotation", fields: [replacedById], references: [id], onDelete: SetNull)
+  replaces   RefreshToken[] @relation("TokenRotation")
+
+  @@index([familyId], map: "idx_refresh_family")
+  @@index([expiresAt], map: "idx_refresh_expires")
+  @@map("refresh_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Tables & assignments
+// ---------------------------------------------------------------------------
+
+model RestaurantTable {
+  id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  restaurantId String      @map("restaurant_id") @db.Uuid
+  tableNumber  Int         @map("table_number")
+  label        String?     @db.VarChar(40)
+  capacity     Int         @default(4) @db.SmallInt
+  status       TableStatus @default(VACANT)
+  isActive     Boolean     @default(true) @map("is_active")
+  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  restaurant  Restaurant              @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  assignments TableWaiterAssignment[]
+  sessions    TableSession[]
+
+  @@unique([restaurantId, tableNumber], map: "uq_table_number_per_restaurant")
+  @@unique([id, restaurantId], map: "uq_tables_id_restaurant")
+  @@map("restaurant_tables")
+}
+
+model TableWaiterAssignment {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  restaurantId String    @map("restaurant_id") @db.Uuid
+  tableId      String    @map("table_id") @db.Uuid
+  waiterUserId String    @map("waiter_user_id") @db.Uuid
+  assignedBy   String?   @map("assigned_by") @db.Uuid
+  assignedAt   DateTime  @default(now()) @map("assigned_at") @db.Timestamptz(6)
+  unassignedAt DateTime? @map("unassigned_at") @db.Timestamptz(6)
+
+  restaurant Restaurant      @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  table      RestaurantTable @relation(fields: [tableId, restaurantId], references: [id, restaurantId], onDelete: Cascade, map: "fk_twa_table")
+  waiter     User            @relation("AssignmentWaiter", fields: [waiterUserId], references: [id], onDelete: Cascade)
+  assigner   User?           @relation("AssignmentAssignedBy", fields: [assignedBy], references: [id], onDelete: SetNull)
+
+  @@index([tableId], map: "idx_twa_table")
+  @@map("table_waiter_assignments")
+}
+
+// ---------------------------------------------------------------------------
+// Menu
+// ---------------------------------------------------------------------------
+
+model MenuCategory {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  restaurantId String   @map("restaurant_id") @db.Uuid
+  name         String   @db.Citext
+  displayOrder Int      @default(0) @map("display_order") @db.SmallInt
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  items      MenuItem[]
+
+  @@unique([restaurantId, name], map: "uq_category_name_per_restaurant")
+  @@unique([id, restaurantId], map: "uq_categories_id_restaurant")
+  @@map("menu_categories")
+}
+
+model MenuItem {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  restaurantId String   @map("restaurant_id") @db.Uuid
+  categoryId   String   @map("category_id") @db.Uuid
+  name         String   @db.Citext
+  description  String?
+  price        Decimal  @db.Decimal(10, 2)
+  isVeg        Boolean? @map("is_veg")
+  isAvailable  Boolean  @default(true) @map("is_available")
+  displayOrder Int      @default(0) @map("display_order") @db.SmallInt
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  restaurant Restaurant   @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  category   MenuCategory @relation(fields: [categoryId, restaurantId], references: [id, restaurantId], onDelete: Restrict, map: "fk_items_category")
+  orderItems OrderItem[]
+
+  @@unique([restaurantId, categoryId, name], map: "uq_item_name_per_category")
+  @@map("menu_items")
+}
+
+// ---------------------------------------------------------------------------
+// Sessions & orders
+// ---------------------------------------------------------------------------
+
+model TableSession {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  restaurantId    String        @map("restaurant_id") @db.Uuid
+  tableId         String        @map("table_id") @db.Uuid
+  openedByUserId  String        @map("opened_by_user_id") @db.Uuid
+  closedByUserId  String?       @map("closed_by_user_id") @db.Uuid
+  status          SessionStatus @default(OPEN)
+  guestCount      Int?          @map("guest_count") @db.SmallInt
+  customerName    String?       @map("customer_name") @db.VarChar(120)
+  customerPhone   String?       @map("customer_phone") @db.VarChar(20)
+  openedAt        DateTime      @default(now()) @map("opened_at") @db.Timestamptz(6)
+  closedAt        DateTime?     @map("closed_at") @db.Timestamptz(6)
+
+  restaurant Restaurant      @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  table      RestaurantTable @relation(fields: [tableId, restaurantId], references: [id, restaurantId], onDelete: Cascade, map: "fk_sessions_table")
+  openedBy   User            @relation("SessionOpenedBy", fields: [openedByUserId], references: [id], onDelete: Restrict)
+  closedBy   User?           @relation("SessionClosedBy", fields: [closedByUserId], references: [id], onDelete: Restrict)
+  orders     Order[]
+
+  @@unique([id, tableId], map: "uq_sessions_id_table")
+  @@unique([id, restaurantId], map: "uq_sessions_id_restaurant")
+  @@index([restaurantId, openedAt(sort: Desc)], map: "idx_sessions_history")
+  @@map("table_sessions")
+}
+
+model Order {
+  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  restaurantId    String      @map("restaurant_id") @db.Uuid
+  tableSessionId  String      @map("table_session_id") @db.Uuid
+  tableId         String      @map("table_id") @db.Uuid
+  orderNumber     Int         @map("order_number")
+  createdByUserId String      @map("created_by_user_id") @db.Uuid
+  status          OrderStatus @default(PENDING)
+  note            String?
+  placedAt        DateTime    @default(now()) @map("placed_at") @db.Timestamptz(6)
+  preparingAt     DateTime?   @map("preparing_at") @db.Timestamptz(6)
+  completedAt     DateTime?   @map("completed_at") @db.Timestamptz(6)
+  cancelledAt     DateTime?   @map("cancelled_at") @db.Timestamptz(6)
+  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  restaurant Restaurant   @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  session    TableSession @relation(fields: [tableSessionId, restaurantId], references: [id, restaurantId], onDelete: Cascade, map: "fk_orders_session_restaurant")
+  createdBy  User         @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+  items      OrderItem[]
+
+  @@unique([restaurantId, orderNumber], map: "uq_order_number_per_restaurant")
+  @@unique([id, restaurantId], map: "uq_orders_id_restaurant")
+  @@index([tableSessionId], map: "idx_orders_session")
+  @@index([restaurantId, placedAt(sort: Desc)], map: "idx_orders_reporting")
+  @@index([createdByUserId], map: "idx_orders_creator")
+  @@map("orders")
+}
+
+model OrderItem {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  restaurantId String   @map("restaurant_id") @db.Uuid
+  orderId      String   @map("order_id") @db.Uuid
+  menuItemId   String?  @map("menu_item_id") @db.Uuid
+  /// Snapshot columns — copied from menu_items at order time so a later price
+  /// change can never re-price a historical bill.
+  itemName     String   @map("item_name") @db.VarChar(120)
+  unitPrice    Decimal  @map("unit_price") @db.Decimal(10, 2)
+  quantity     Int
+  /// GENERATED ALWAYS AS (unit_price * quantity) STORED — read-only.
+  /// NEVER include this field in a create/update payload.
+  lineTotal    Decimal? @map("line_total") @db.Decimal(12, 2)
+  note         String?
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  order      Order      @relation(fields: [orderId, restaurantId], references: [id, restaurantId], onDelete: Cascade, map: "fk_order_items_order")
+  menuItem   MenuItem?  @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
+
+  @@index([orderId], map: "idx_order_items_order")
+  @@index([restaurantId, menuItemId], map: "idx_order_items_menu")
+  @@map("order_items")
+}
+
+model RestaurantCounter {
+  restaurantId    String @id @map("restaurant_id") @db.Uuid
+  lastOrderNumber Int    @default(0) @map("last_order_number")
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@map("restaurant_counters")
+}
