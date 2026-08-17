@@ -1,0 +1,331 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+/* Tailwind v4 has no `darkMode: 'class'` config key — dark is a custom variant.
+   `ui.store` toggles the `.dark` class on <html>; the app ships dark-first. */
+@custom-variant dark (&:is(.dark *));
+
+/* ---------------------------------------------------------------------------
+   Palette. Every colour in the app resolves to one of these tokens — a hex
+   literal in a component is a bug. Values are oklch so the light and dark
+   ramps stay perceptually even.
+   --------------------------------------------------------------------------- */
+
+:root {
+  --radius: 0.7rem;
+
+  --background: oklch(0.985 0.004 255);
+  --foreground: oklch(0.21 0.022 262);
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.022 262);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.022 262);
+
+  /* Saffron — the one accent that carries the brand. */
+  --primary: oklch(0.67 0.18 52);
+  --primary-foreground: oklch(0.99 0.01 80);
+
+  --secondary: oklch(0.955 0.008 255);
+  --secondary-foreground: oklch(0.28 0.022 262);
+  --muted: oklch(0.955 0.008 255);
+  --muted-foreground: oklch(0.5 0.024 260);
+  --accent: oklch(0.94 0.014 255);
+  --accent-foreground: oklch(0.28 0.022 262);
+
+  --destructive: oklch(0.57 0.22 25);
+  --destructive-foreground: oklch(0.99 0.01 80);
+
+  --border: oklch(0.9 0.01 255);
+  --input: oklch(0.9 0.01 255);
+  --ring: oklch(0.67 0.18 52);
+
+  /* Order / table status — used by the kitchen, the tables grid and reports
+     alike, so the three screens can never disagree about what amber means.
+     Five hues, evenly spread round the wheel, so no two ever read as the same
+     colour glanced at across a room:
+       pending amber 72 · preparing blue 252 · completed green 155
+       vacant slate 250 (deliberately the only near-neutral) · occupied violet 300 */
+  --status-pending: oklch(0.7 0.18 72);
+  --status-preparing: oklch(0.56 0.2 252);
+  --status-completed: oklch(0.56 0.17 155);
+  --status-vacant: oklch(0.53 0.03 250);
+  --status-occupied: oklch(0.54 0.22 300);
+
+  --chart-1: oklch(0.67 0.18 52);
+  --chart-2: oklch(0.56 0.2 252);
+  --chart-3: oklch(0.56 0.17 155);
+  --chart-4: oklch(0.54 0.22 300);
+  --chart-5: oklch(0.58 0.15 200);
+
+  --sidebar: oklch(0.98 0.005 255);
+  --sidebar-foreground: oklch(0.28 0.022 262);
+  --sidebar-border: oklch(0.9 0.01 255);
+}
+
+.dark {
+  /* Dark is the product's home. The base is a deep indigo-black rather than a
+     neutral grey — it gives every saturated status colour something to sing
+     against, which flat grey does not. */
+  --background: oklch(0.16 0.019 266);
+  --foreground: oklch(0.97 0.005 255);
+
+  --card: oklch(0.215 0.023 266);
+  --card-foreground: oklch(0.97 0.005 255);
+  --popover: oklch(0.23 0.025 266);
+  --popover-foreground: oklch(0.97 0.005 255);
+
+  --primary: oklch(0.79 0.17 60);
+  --primary-foreground: oklch(0.2 0.06 55);
+
+  --secondary: oklch(0.28 0.027 266);
+  --secondary-foreground: oklch(0.95 0.006 255);
+  --muted: oklch(0.265 0.025 266);
+  --muted-foreground: oklch(0.74 0.026 260);
+  --accent: oklch(0.32 0.034 266);
+  --accent-foreground: oklch(0.97 0.005 255);
+
+  --destructive: oklch(0.66 0.22 25);
+  --destructive-foreground: oklch(0.99 0.01 80);
+
+  --border: oklch(0.33 0.03 266);
+  --input: oklch(0.35 0.032 266);
+  --ring: oklch(0.79 0.17 60);
+
+  /* Same five hues, re-stepped for the dark surface — lifted in lightness and
+     held above the chroma floor so they stay vivid on near-black. */
+  --status-pending: oklch(0.81 0.17 75);
+  --status-preparing: oklch(0.71 0.18 252);
+  --status-completed: oklch(0.75 0.18 155);
+  --status-vacant: oklch(0.68 0.035 250);
+  --status-occupied: oklch(0.72 0.19 300);
+
+  /* Chart marks are their own ramp, re-stepped for the dark surface rather than
+     flipped from the light one: L inside the 0.48–0.67 band, C above the 0.10
+     chroma floor, ≥3:1 against --card, adjacent-pair CVD ΔE ≥ 8. Verified with
+     scripts/validate-palette.mjs — re-run it before changing these. */
+  --chart-1: oklch(0.67 0.165 62);
+  --chart-2: oklch(0.64 0.185 255);
+  --chart-3: oklch(0.66 0.165 152);
+  --chart-4: oklch(0.62 0.2 300);
+  --chart-5: oklch(0.66 0.135 200);
+
+  --sidebar: oklch(0.185 0.021 266);
+  --sidebar-foreground: oklch(0.91 0.01 255);
+  --sidebar-border: oklch(0.3 0.028 266);
+}
+
+/* A token declared here generates bg-*, text-*, border-* automatically —
+   that is the whole mechanism. `bg-status-pending` exists because of this. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-status-pending: var(--status-pending);
+  --color-status-preparing: var(--status-preparing);
+  --color-status-completed: var(--status-completed);
+  --color-status-vacant: var(--status-vacant);
+  --color-status-occupied: var(--status-occupied);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans: 'Inter var', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    /* A stray wide child must never make the whole page pan sideways on a
+       phone. `clip` (not `hidden`) keeps position:sticky working. */
+    overflow-x: clip;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    overflow-x: clip;
+    font-feature-settings:
+      'cv02' 1,
+      'cv03' 1,
+      'cv11' 1;
+    /* Three washes, not one: saffron top-right, blue bottom-left, violet
+       centre. They keep the near-black from reading as flat grey and give the
+       shell some depth without ever touching legibility. */
+    background-image:
+      radial-gradient(
+        55rem 38rem at 105% -8%,
+        color-mix(in oklch, var(--primary) 14%, transparent),
+        transparent
+      ),
+      radial-gradient(
+        45rem 38rem at -8% 8%,
+        color-mix(in oklch, var(--status-preparing) 12%, transparent),
+        transparent
+      ),
+      radial-gradient(
+        60rem 45rem at 50% 115%,
+        color-mix(in oklch, var(--status-occupied) 9%, transparent),
+        transparent
+      );
+    background-attachment: fixed;
+  }
+
+  /* Numbers that sit in columns — money, order numbers, counters. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    background: color-mix(in oklch, var(--primary) 32%, transparent);
+  }
+
+  *:focus-visible {
+    @apply ring-2 ring-ring/70 ring-offset-2 ring-offset-background outline-none;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in oklch, var(--muted-foreground) 28%, transparent);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in oklch, var(--muted-foreground) 45%, transparent);
+    background-clip: content-box;
+  }
+}
+
+@layer components {
+  /* The frosted panel every card, sheet and dialog is built from. */
+  .surface {
+    @apply border-border/70 bg-card/70 backdrop-blur-xl;
+  }
+
+  .glow-primary {
+    box-shadow:
+      0 0 0 1px color-mix(in oklch, var(--primary) 26%, transparent),
+      0 18px 50px -22px color-mix(in oklch, var(--primary) 60%, transparent);
+  }
+
+  /* Touch-friendly scroll containers. The visible affordance that there is
+     more content past the edge is painted by <Scroller>, which measures the
+     overflow — CSS alone cannot tell "scrolled to the end" from "fits". */
+  .scroll-touch {
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+
+  /* A surface that carries a status hue. `--tone` is set inline by the
+     component from a status token, so the tint, the border and the glow can
+     never drift out of agreement with the badge sitting on top of it. */
+  .toned {
+    border-color: color-mix(in oklch, var(--tone) 40%, transparent);
+    background-image: linear-gradient(
+      160deg,
+      color-mix(in oklch, var(--tone) 14%, transparent),
+      color-mix(in oklch, var(--tone) 4%, transparent) 55%,
+      transparent
+    );
+  }
+
+  .toned-hover:hover {
+    border-color: color-mix(in oklch, var(--tone) 65%, transparent);
+    box-shadow:
+      0 0 0 1px color-mix(in oklch, var(--tone) 22%, transparent),
+      0 18px 44px -24px color-mix(in oklch, var(--tone) 75%, transparent);
+  }
+
+  /* The 4px rail that names a card's status before any text is read. */
+  .tone-rail {
+    background-image: linear-gradient(
+      to bottom,
+      var(--tone),
+      color-mix(in oklch, var(--tone) 45%, transparent)
+    );
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Print — the bill, and only the bill. Black on white, full width, no shell.
+   --------------------------------------------------------------------------- */
+@media print {
+  @page {
+    margin: 12mm;
+  }
+
+  body {
+    background: #fff !important;
+    background-image: none !important;
+    color: #000 !important;
+  }
+
+  .no-print,
+  nav,
+  aside,
+  header button,
+  [data-slot='toaster'] {
+    display: none !important;
+  }
+
+  .print-area {
+    position: static !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    background: #fff !important;
+    color: #000 !important;
+    backdrop-filter: none !important;
+  }
+
+  .print-area * {
+    color: #000 !important;
+    border-color: #999 !important;
+    background: transparent !important;
+  }
+}
