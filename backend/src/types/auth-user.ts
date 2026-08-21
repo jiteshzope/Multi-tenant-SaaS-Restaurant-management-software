@@ -7,8 +7,8 @@ export interface AuthUser {
   /** restaurants.id — read ONLY from the verified access token. */
   restaurantId: string;
   role: UserRole;
-  email: string;
   name: string;
+  email: string;
 }
 
 /** Access-token claims. */
