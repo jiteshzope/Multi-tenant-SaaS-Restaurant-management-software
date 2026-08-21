@@ -4,6 +4,10 @@
   "description": "Multi-tenant restaurant SaaS — NestJS API",
   "private": true,
   "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22",
+    "npm": ">=10"
+  },
   "scripts": {
     "build": "nest build",
     "start": "nest start",
